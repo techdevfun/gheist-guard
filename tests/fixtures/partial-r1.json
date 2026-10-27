@@ -1,0 +1,1 @@
+{"branches":[{"name":"ci-sync-config"},{"name":"main"}],"repo":"some-org/some-app","workflows":[{"branch":"main","commitMessage":"ci: run tests","commitSigned":true,"content":"name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n","hasPullRequest":true,"path":".github/workflows/ci.yml"}]}

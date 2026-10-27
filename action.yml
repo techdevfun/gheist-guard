@@ -1,0 +1,53 @@
+name: "gheist-guard"
+description: "Behavioral detector for the Gheist planted-workflow attack shape. Read-only: one verdict per repository plus a rotate checklist. Never deletes, rotates, or prints a secret value."
+inputs:
+  target:
+    description: "Repository to scan (owner/repo). Defaults to the current repository."
+    required: false
+    default: ""
+  token:
+    description: "Read-only GitHub token (fine-grained, repository read scope is enough for the REST path)."
+    required: false
+    default: ${{ github.token }}
+  allow-branch-pattern:
+    description: "Optional regex for branch names to allowlist (reported as SKIPPED, never silently dropped)."
+    required: false
+    default: ""
+  allow-workflow:
+    description: "Optional workflow path to allowlist."
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - name: Build gheist-guard from source
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci
+        npm run build
+    - name: Scan for the Gheist attack shape
+      shell: bash
+      run: |
+        TARGET="${{ inputs.target }}"
+        if [ -z "$TARGET" ]; then TARGET="$GITHUB_REPOSITORY"; fi
+        ARGS=("$TARGET" --token "${{ inputs.token }}")
+        if [ -n "${{ inputs.allow-branch-pattern }}" ]; then
+          ARGS+=(--allow-branch-pattern "${{ inputs.allow-branch-pattern }}")
+        fi
+        if [ -n "${{ inputs.allow-workflow }}" ]; then
+          ARGS+=(--allow-workflow "${{ inputs.allow-workflow }}")
+        fi
+        # Exit 1 on SUSPECT or CONFIRMED fails this step by design.
+        node "${{ github.action_path }}/dist/cli.js" scan "${ARGS[@]}" > gheist-guard-report.json
+        cat gheist-guard-report.json
+    - name: Upload report artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gheist-guard-report
+        path: gheist-guard-report.json

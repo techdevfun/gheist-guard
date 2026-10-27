@@ -1,0 +1,24 @@
+$ node dist/cli.js scan victim-org/victim-app --fixture tests/fixtures/planted-rest.json --format human
+
+Verdict: CONFIRMED
+Repo: victim-org/victim-app
+Path: rest
+Rules: v2026.10, checked at 2026-10-27T06:32:30.124Z
+Findings:
+  [R1 high] branch ci-sync-a1b2c3 matches ^ci-sync-[0-9a-z]{6}$
+  [R2 high] workflow .github/workflows/sync-check.yml on branch ci-sync-a1b2c3 added with commit "ci: sync config", unsigned push, no pull request
+  [R3 high] workflow .github/workflows/sync-check.yml on branch ci-sync-a1b2c3 prints environment or secrets through printenv
+Rotate checklist (secret NAMES only, never values):
+  - Revoke the token of victim-dev (pusher of ci-sync-a1b2c3)
+  - Rotate repository secrets (names only): AWS_KEY, GH_TOKEN
+  - Check OIDC roles assumable from ref ci-sync-a1b2c3 (CloudTrail AssumeRoleWithWebIdentity events carrying this ref)
+  - Check the pushing account's machine for infostealer compromise (the documented token-theft source) before issuing a replacement token
+gheist-guard: verdict=CONFIRMED repo=victim-org/victim-app path=rest findings=3 skipped=0
+$ node dist/cli.js scan victim-org/victim-app --fixture tests/fixtures/legit-rest.json --format human
+
+Verdict: CLEAR
+Repo: some-org/some-app
+Path: rest
+Rules: v2026.10, checked at 2026-10-27T06:32:32.164Z
+Findings: none
+gheist-guard: verdict=CLEAR repo=some-org/some-app path=rest findings=0 skipped=0
