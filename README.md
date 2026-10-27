@@ -172,8 +172,8 @@ tells the operator what to do, in order; the operator does it.
   real repositories scanned, all CLEAR, exit 0 (vetgate, context-diet,
   breakcheck); plus a private scratch repository with a branch-only
   plant: SUSPECT pre-fix (R1 only) and CONFIRMED post-fix (R1+R2+R3)
-  on verbatim live state. Evidence:
-  [docs/live-scratch-evidence-2026-10-27.md](docs/live-scratch-evidence-2026-10-27.md).
+  on verbatim live state; the same detection shape is covered by
+  tests/rest.test.js and tests/fixtures/planted-rest.json.
   The scratch branch was deleted; the repository shell awaits
   owner-side deletion (API deletion is scope-blocked, 403).
 - Demo (real CLI runs on fixtures, not staged): 9.4-second GIF
