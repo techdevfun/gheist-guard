@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fetchRestInput } from "../dist/rest.js";
+import { fetchRestInput, listOrgRepos } from "../dist/rest.js";
 import { evaluateRest } from "../dist/rules.js";
 import { computeVerdict } from "../dist/verdict.js";
 
@@ -11,6 +11,11 @@ import { computeVerdict } from "../dist/verdict.js";
 // of passing vacuously.
 
 const ok = (data) => ({ ok: true, json: async () => data });
+const okLink = (data, link) => ({
+  ok: true,
+  headers: { get: (n) => (n.toLowerCase() === "link" ? link ?? null : null) },
+  json: async () => data,
+});
 const fail = (status) => ({ ok: false, status, json: async () => ({}) });
 
 const withFetch = async (handler, fn) => {
@@ -133,4 +138,58 @@ test("default-branch workflow keeps the default attribution", async () => {
   assert.equal(input.workflows[0].hasPullRequest, true);
   assert.deepEqual(evaluateRest(input), []);
   assert.equal(computeVerdict(evaluateRest(input)), "CLEAR");
+});
+
+test("branch listing follows pagination: R1 branch past page 1 is seen", async () => {
+  // Regression: the adapter used to read only the first 100 branches, so
+  // a planted branch past that cut was invisible and the scan reported
+  // a false CLEAR. Page 1 holds 100 legitimate branches, page 2 the plant.
+  const page1 = Array.from({ length: 100 }, (_, i) => ({
+    name: `feature-${i}`,
+  }));
+  const handler = async (url) => {
+    if (url.includes("/branches?") && !url.includes("page=2")) {
+      return okLink(
+        page1,
+        '<https://api.github.com/repos/o/r/branches?per_page=100&page=2>; rel="next", ' +
+          '<https://api.github.com/repos/o/r/branches?per_page=100&page=2>; rel="last"',
+      );
+    }
+    if (url.includes("/branches?") && url.includes("page=2")) {
+      return okLink([{ name: "ci-sync-a1b2c3" }], null);
+    }
+    if (url.includes("/contents/.github/workflows?")) return fail(404);
+    throw new Error(`unrouted fetch: ${url}`);
+  };
+  const input = await withFetch(handler, () =>
+    fetchRestInput("o/r", {}),
+  );
+  assert.equal(input.branches.length, 101);
+  assert.ok(input.branches.some((b) => b.name === "ci-sync-a1b2c3"));
+  const findings = evaluateRest(input);
+  assert.deepEqual(
+    findings.map((f) => f.rule),
+    ["R1"],
+  );
+  assert.equal(computeVerdict(findings), "SUSPECT");
+});
+
+test("org repo listing follows pagination: repos past page 1 are seen", async () => {
+  const handler = async (url) => {
+    if (url.includes("/orgs/example/repos?") && !url.includes("page=2")) {
+      return okLink(
+        [{ full_name: "example/a" }, { full_name: "example/b" }],
+        '<https://api.github.com/orgs/example/repos?per_page=100&page=2>; rel="next", ' +
+          '<https://api.github.com/orgs/example/repos?per_page=100&page=2>; rel="last"',
+      );
+    }
+    if (url.includes("/orgs/example/repos?") && url.includes("page=2")) {
+      return okLink([{ full_name: "example/c" }], null);
+    }
+    throw new Error(`unrouted fetch: ${url}`);
+  };
+  const repos = await withFetch(handler, () =>
+    listOrgRepos("example", {}),
+  );
+  assert.deepEqual(repos, ["example/a", "example/b", "example/c"]);
 });
