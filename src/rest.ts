@@ -10,7 +10,10 @@
 // invisible to a default-branch-only listing, so matched branches are
 // read explicitly via ?ref=<branch>. A workflow found on a matched
 // branch is attributed to that branch, which is what lets R1 combine
-// with R2/R3 into CONFIRMED on the live path.
+// with R2/R3 into CONFIRMED on the live path. List endpoints are fully
+// paginated (Link rel="next"): a single-page read would silently drop
+// branches, workflows, or repositories past the first 100 and could
+// report a false CLEAR.
 
 import type { RestInput, WorkflowInput } from "./types.js";
 import { isBranchMatch } from "./rules.js";
@@ -35,6 +38,55 @@ async function getJson(
     throw new Error(`GitHub API ${res.status} for ${url}`);
   }
   return res.json() as Promise<unknown>;
+}
+
+/** Extract the `rel="next"` URL from a GitHub `Link` header, if any. */
+function parseNextLink(linkHeader: string | null | undefined): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const m = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Fetch a paginated list endpoint, following `rel="next"` until the
+ * list is exhausted. List endpoints cap at 100 items per page, so a
+ * single-page read silently drops everything past the first page:
+ * a planted branch past branch 100 would be missed entirely and the
+ * scan would report a false CLEAR. A visited-URL set guards against
+ * a looping `Link` header; it never truncates a legitimate list.
+ */
+async function getJsonPaged(
+  url: string,
+  token?: string,
+): Promise<unknown[]> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "gheist-guard",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const out: unknown[] = [];
+  const seen = new Set<string>();
+  let next: string | null = url;
+  while (next) {
+    if (seen.has(next)) {
+      throw new Error(`GitHub API paging loop at ${next}`);
+    }
+    seen.add(next);
+    const res = await fetch(next, { headers });
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status} for ${next}`);
+    }
+    const data = (await res.json()) as unknown;
+    if (!Array.isArray(data)) {
+      throw new Error(`GitHub API returned a non-list for ${next}`);
+    }
+    out.push(...data);
+    next = parseNextLink(res.headers?.get?.("link"));
+  }
+  return out;
 }
 
 interface BranchRow {
@@ -64,7 +116,7 @@ export async function fetchRestInput(
   if (!owner || !repo) {
     throw new Error(`expected <owner/repo>, got "${ownerRepo}"`);
   }
-  const branches = (await getJson(
+  const branches = (await getJsonPaged(
     `${API}/repos/${owner}/${repo}/branches?per_page=100`,
     opts.token,
   )) as BranchRow[];
@@ -76,7 +128,7 @@ export async function fetchRestInput(
     const refQuery = ref ? `&ref=${encodeURIComponent(ref)}` : "";
     let files: ContentRow[] = [];
     try {
-      files = (await getJson(
+      files = (await getJsonPaged(
         `${API}/repos/${owner}/${repo}/contents/.github/workflows?per_page=100${refQuery}`,
         opts.token,
       )) as ContentRow[];
@@ -138,7 +190,7 @@ export async function listOrgRepos(
   org: string,
   opts: RestOptions = {},
 ): Promise<string[]> {
-  const rows = (await getJson(
+  const rows = (await getJsonPaged(
     `${API}/orgs/${org}/repos?per_page=100`,
     opts.token,
   )) as { full_name: string }[];
