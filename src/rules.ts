@@ -205,15 +205,29 @@ export function evaluateAudit(input: AuditInput): {
       }
     }
     if (e.actor && !actors.includes(e.actor)) actors.push(e.actor);
-    if (e.userAgent === "gheist" && !r5Seen.has(e.runId)) {
-      r5Seen.add(e.runId);
+    // R5 dedupes per run id only when the run id is known: events
+    // without one carry no evidence of being the same run, so each is
+    // its own finding, and the evidence never prints an empty run id
+    // ("(run )" quoted nothing and hid the gap). The fetcher maps a
+    // missing workflow_run_id to "", so this is a live shape, not a
+    // hypothetical: a recorded payload without run ids must not
+    // collapse distinct fingerprint events into one.
+    if (
+      e.userAgent === "gheist" &&
+      (!e.runId || !r5Seen.has(e.runId))
+    ) {
+      if (e.runId) r5Seen.add(e.runId);
+      const where = [
+        e.runId ? `run ${e.runId}` : null,
+        e.branch ? `branch ${e.branch}` : null,
+      ].filter((x): x is string => x !== null);
       findings.push({
         rule: "R5",
         name: "tool-fingerprint",
         severity: "high",
-        evidence: `audit-log event with user agent "gheist" (run ${e.runId}` +
-          (e.branch ? `, branch ${e.branch}` : "") +
-          `)`,
+        evidence:
+          `audit-log event with user agent "gheist"` +
+          (where.length > 0 ? ` (${where.join(", ")})` : ""),
         signal: "audit-log",
         branch: e.branch,
       });
@@ -228,6 +242,12 @@ export function evaluateAudit(input: AuditInput): {
     byRun.set(e.runId, list);
   }
   for (const [runId, events] of byRun) {
+    // No run id, no pairing: three lifecycle events that carry no
+    // run id are not evidence of one run, so they must not form an
+    // R4 triple. Grouping them under the fetcher's "" placeholder
+    // previously fabricated a CONFIRMED verdict (R1+R4) out of
+    // unrelated events, with evidence quoting an empty run id.
+    if (!runId) continue;
     const created = events.find(
       (e) => e.action === "workflows.created_workflow_run",
     );
