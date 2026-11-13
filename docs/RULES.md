@@ -51,11 +51,13 @@ seconds (created, completed, deleted event triple). Combined with R1:
 CONFIRMED. The 60-second window is calibrated on fixtures: a 45-second
 triple fires, a 300-second triple does not, the 60-second boundary is
 inclusive, 61 seconds does not fire. A triple on a non-matching branch
-does not fire R4 by definition.
+does not fire R4 by definition. Events without a run id cannot form
+a triple: they carry no evidence of being one run.
 
 ### R5 - tool-fingerprint, audit-log path only (high)
 An audit-log event with user agent `gheist`. One finding per run, not
-per event. Combined with R1: CONFIRMED.
+per event. Events without a run id are not deduplicated: each is its
+own finding. Combined with R1: CONFIRMED.
 
 ### R6 - generic unreviewed-workflow (medium)
 A workflow file added or changed without a pull request or review AND
