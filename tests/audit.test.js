@@ -228,3 +228,62 @@ test("empty event list is CLEAR, not an error", () => {
   assert.deepEqual(findings, []);
   assert.equal(computeVerdict(findings), "CLEAR");
 });
+
+// Regression: the fetcher maps a missing workflow_run_id to "", so a
+// recorded payload without run ids must not fabricate an R4 triple
+// (and a CONFIRMED verdict) out of unrelated lifecycle events, and
+// must not collapse distinct gheist user-agent events into one R5
+// finding with empty-run evidence.
+test("lifecycle triple with missing run id does not fire R4", () => {
+  const { findings } = evaluateAudit({
+    org: "victim-org",
+    events: [
+      {
+        action: "workflows.created_workflow_run",
+        runId: "",
+        branch: "ci-sync-a1b2c3",
+        timestamp: "2026-10-20T03:14:00Z",
+      },
+      {
+        action: "workflows.completed_workflow_run",
+        runId: "",
+        branch: "ci-sync-a1b2c3",
+        timestamp: "2026-10-20T03:14:30Z",
+      },
+      {
+        action: "workflows.delete_workflow_run",
+        runId: "",
+        branch: "ci-sync-a1b2c3",
+        timestamp: "2026-10-20T03:14:45Z",
+      },
+    ],
+  });
+  assert.deepEqual(rulesOf(findings), ["R1"]);
+  assert.equal(computeVerdict(findings), "SUSPECT");
+});
+
+test("gheist user-agent events with missing run id each fire R5", () => {
+  const { findings } = evaluateAudit({
+    org: "victim-org",
+    events: [
+      {
+        action: "workflows.created_workflow_run",
+        runId: "",
+        branch: "ci-sync-a1b2c3",
+        userAgent: "gheist",
+        timestamp: "2026-10-20T03:14:00Z",
+      },
+      {
+        action: "workflows.completed_workflow_run",
+        runId: "",
+        branch: "ci-sync-a1b2c3",
+        userAgent: "gheist",
+        timestamp: "2026-10-20T03:14:30Z",
+      },
+    ],
+  });
+  const r5 = findings.filter((f) => f.rule === "R5");
+  assert.equal(r5.length, 2);
+  for (const f of r5) assert.doesNotMatch(f.evidence, /\(run ,/);
+  assert.equal(computeVerdict(findings), "CONFIRMED");
+});
